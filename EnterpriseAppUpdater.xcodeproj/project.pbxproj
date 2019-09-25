@@ -25,6 +25,7 @@
 /* Begin PBXFileReference section */
 		ECFAE7AB232680DF000A4394 /* libEnterpriseAppUpdater.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libEnterpriseAppUpdater.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		ECFAE7AE232680DF000A4394 /* EnterpriseAppUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnterpriseAppUpdater.swift; sourceTree = "<group>"; };
+		ECFAE7B5232A70C1000A4394 /* EnterpriseAppUpdater.podspec */ = {isa = PBXFileReference; lastKnownFileType = text; path = EnterpriseAppUpdater.podspec; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -43,6 +44,7 @@
 			children = (
 				ECFAE7AD232680DF000A4394 /* EnterpriseAppUpdater */,
 				ECFAE7AC232680DF000A4394 /* Products */,
+				ECFAE7B5232A70C1000A4394 /* EnterpriseAppUpdater.podspec */,
 			);
 			sourceTree = "<group>";
 		};
