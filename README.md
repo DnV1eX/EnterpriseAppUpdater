@@ -1,7 +1,8 @@
 # EnterpriseAppUpdater
 Enterprise App Updater loads app's manifest file, checks for a new version, provides an alert with patch notes and starts the update.
 
-![Screenshot](Screenshot.png)
+<div align="center"><img src="Screenshot.png" width="300"></div>
+
 
 ## Setup
 ### Swift Package Manager *(preferred)*
@@ -16,12 +17,15 @@ pod 'EnterpriseAppUpdater', '~> 1.1'
 ### Copy File *(not recommended)*
 Alternatively, you can manually copy [EnterpriseAppUpdater.swift](Sources/EnterpriseAppUpdater/EnterpriseAppUpdater.swift) into your project.
 
+
 ## Prepare Application Manifest
 1. Generate `manifest.plist` during enterprise app distribution in Xcode Organizer;
 2. Make sure `software-package` asset contains direct **https** link to the app's **.ipa**;
 3. Optionally add release notes to `subtitle` metadata to display in the update alert *(use `\n` for line break)*;
 4. Upload the manifest and get a direct **https** link you will use to initialize EnterpriseAppUpdater.
+
 > Manifest URL must remain the same when the update is released, you only edit **.plist** content such as app `url`, `bundle-version` and optional `subtitle`.
+
 
 ## Usage Example
 ```swift
@@ -57,7 +61,9 @@ updater.loadManifest { result in
     }
 }
 ```
+
 > It's up to you whether to load manifest and check for update on the app launch, at time intervals, or by user request.
+
 
 ## License
 Copyright © 2019 DnV1eX. All rights reserved.
