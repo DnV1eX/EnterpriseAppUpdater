@@ -21,43 +21,52 @@
 import UIKit
 
 
+/// Manage in-house application updates.
 public class EnterpriseAppUpdater {
 
-    public enum Error: LocalizedError {
-        case unableToLoadManifest(reason: String)
-        case unableToReadManifest(reason: String)
-        case misformattedManifest(description: String)
-        case wrongManifestBundleIdentifier(String)
-        case noAppUpdateNeeded(manifestBundleVersion: String)
-        case unableToCreateDownloadLink(String)
-        case unableToOpenDownloadLink(String)
+    public enum ManifestError: Error, CustomStringConvertible {
+        case unableToLoad(Error)
+        case unableToRead(Error)
+        
+        public var description: String {
+            switch self {
+            case .unableToLoad(let error): return "Unable to load manifest: \(error.localizedDescription)"
+            case .unableToRead(let error): return "Unable to read manifest: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    public enum ItemError: Error, CustomStringConvertible {
+        case noItemsFound
+        case multipleItemsFound(count: Int)
+        case wrongBundleIdentifier(String)
+        case unexpectedKind(String)
+        case noBundleVersionFound
+        case noAppUpdateNeeded(bundleVersion: String)
+        case noIPAURLFound
 
-        public var errorDescription: String? {
+        public var description: String {
             switch self {
-            case .unableToLoadManifest: return "Unable to load manifest"
-            case .unableToReadManifest: return "Unable to read manifest"
-            case .misformattedManifest: return "Manifest is misformatted"
-            case .wrongManifestBundleIdentifier: return "Wrong manifest bundle identifier"
-            case .noAppUpdateNeeded: return "App is up-to-date"
-            case .unableToCreateDownloadLink: return "Unable to create download link"
-            case .unableToOpenDownloadLink: return "Unable to open download link"
+            case .noItemsFound: return "No items found"
+            case .multipleItemsFound(let count): return "\(count) items found, only single supported"
+            case .wrongBundleIdentifier(let id): return "Bundle \"\(id)\" does not match the app"
+            case .unexpectedKind(let kind): return "Unexpected kind \"\(kind)\", only \"software\" downloads supported"
+            case .noBundleVersionFound: return "No bundle version found, it is required for software"
+            case .noAppUpdateNeeded(let bundleVersion): return "Current app version is greater or equal \(bundleVersion), no update needed"
+            case .noIPAURLFound: return "No .ipa URL found"
             }
         }
-        
-        public var failureReason: String? {
+    }
+    
+    public enum URLError: Error, CustomStringConvertible {
+        case unableToCreate(for: URL)
+        case unableToOpen(URL)
+
+        public var description: String {
             switch self {
-            case .unableToLoadManifest(let reason): return reason
-            case .unableToReadManifest(let reason): return reason
-            case .misformattedManifest(let description): return description
-            case .wrongManifestBundleIdentifier(let id): return "Bundle \"\(id)\" does not match the app."
-            case .noAppUpdateNeeded(let version): return "Current app version is greater or equal \(version), no update needed."
-            case .unableToCreateDownloadLink(let query): return "Invalid URL components \"\(query)\"."
-            case .unableToOpenDownloadLink(let path): return "Invalid URL \"\(path)\"."
+            case .unableToCreate(let manifestURL): return "Unable to create URL for \"\(manifestURL)\""
+            case .unableToOpen(let url): return "Unable to open URL \"\(url)\""
             }
-        }
-        
-        public var localizedDescription: String {
-            return (errorDescription ?? "App Update Error") + (failureReason.map { ": \($0)" } ?? ".")
         }
     }
     
@@ -103,11 +112,19 @@ public class EnterpriseAppUpdater {
     }
     
     
-    public static let loadManifestErrorMessage = "App Update Manifest Load Error"
-    public static let checkErrorMessage = "App Update Check Error"
-    public static let startErrorMessage = "App Update Start Error"
-//    public static let postponeWarningMessage = "Immediate application update is highly encouraged!"
+    public struct Message {
+        public static var error = "App Update Error"
+        public static var upToDate = "App is up-to-date"
+        public static var available = "Update Available"
+        public static var titleVersionCurrentVersion = "%@ version %@ (currently %@)"
+        public static var start = "Download and Install Now"
+        public static var postpone = "Remind to Update Later"
+        public static var started = "User started the update"
+        public static var postponed = "User postponed the update"
+        public static var postponeWarning = "Immediate application update is highly encouraged!"
+    }
 
+    
     let manifestURL: URL
     let bundleIdentifier: String?
     let bundleVersion: String?
@@ -120,22 +137,23 @@ public class EnterpriseAppUpdater {
     }
     
     
-    public func loadManifest(onCompletion: @escaping (Result<Manifest, Error>) -> Void) {
+    /// Load and read the application manifest file.
+    public func loadManifest(onCompletion: @escaping (Result<Manifest, ManifestError>) -> Void) {
         
         DispatchQueue.global(qos: .utility).async {
-            let result: Result<Manifest, Error> = {
+            let result: Result<Manifest, ManifestError> = {
                 let data: Data
                 do {
                     data = try Data(contentsOf: self.manifestURL)
                 } catch {
-                    return .failure(.unableToLoadManifest(reason: error.localizedDescription))
+                    return .failure(.unableToLoad(error))
                 }
 //                print(String(data: data, encoding: .utf8))
                 let manifest: Manifest
                 do {
                     manifest = try PropertyListDecoder().decode(Manifest.self, from: data)
                 } catch {
-                    return .failure(.unableToReadManifest(reason: error.localizedDescription))
+                    return .failure(.unableToRead(error))
                 }
                 return .success(manifest)
             }()
@@ -146,34 +164,38 @@ public class EnterpriseAppUpdater {
     }
     
     
-    public func check(manifest: Manifest) -> Result<Manifest.Item, Error> {
+    /// Check the manifest for an application update.
+    public func check(manifest: Manifest, strict: Bool = true) -> Result<Manifest.Item, ItemError> {
         
         guard let item = manifest.items.first else {
-            return .failure(.misformattedManifest(description: "No items found."))
+            return .failure(.noItemsFound)
         }
-        guard manifest.items.count == 1 else {
-            return .failure(.misformattedManifest(description: "\(manifest.items.count) items found, only single supported."))
-        }
-        guard bundleIdentifier == nil || item.metadata.identifier == bundleIdentifier else {
-            return .failure(.wrongManifestBundleIdentifier(item.metadata.identifier))
-        }
-        guard item.metadata.kind == "software" else {
-            return .failure(.misformattedManifest(description: "Unexpected \"\(item.metadata.kind)\" kind, only \"software\" downloads supported."))
+        if strict {
+            guard manifest.items.count == 1 else {
+                return .failure(.multipleItemsFound(count: manifest.items.count))
+            }
+            guard bundleIdentifier == nil || item.metadata.identifier == bundleIdentifier else {
+                return .failure(.wrongBundleIdentifier(item.metadata.identifier))
+            }
+            guard item.metadata.kind == "software" else {
+                return .failure(.unexpectedKind(item.metadata.kind))
+            }
         }
         guard let manifestBundleVersion = item.metadata.version else {
-            return .failure(.misformattedManifest(description: "No bundle version found, it is required for software."))
+            return .failure(.noBundleVersionFound)
         }
         guard bundleVersion == nil || manifestBundleVersion > bundleVersion! else {
-            return .failure(.noAppUpdateNeeded(manifestBundleVersion: manifestBundleVersion))
+            return .failure(.noAppUpdateNeeded(bundleVersion: manifestBundleVersion))
         }
         guard let url = item.assets.first(where: { $0.kind == .ipa })?.url, !url.isEmpty else {
-            return .failure(.misformattedManifest(description: "No ipa URL found."))
+            return .failure(.noIPAURLFound)
         }
         return .success(item)
     }
     
     
-    public func start(onError: ((Error) -> Void)? = nil) {
+    /// Start the application update.
+    public func start(onError: ((URLError) -> Void)? = nil) {
         
         var urlComponents = URLComponents()
         urlComponents.scheme = "itms-services"
@@ -182,30 +204,26 @@ public class EnterpriseAppUpdater {
         if let url = urlComponents.url {
             UIApplication.shared.open(url) { success in
                 if !success {
-                    onError?(.unableToOpenDownloadLink(url.absoluteString))
+                    onError?(.unableToOpen(url))
                 }
             }
         } else {
-            onError?(.unableToCreateDownloadLink(urlComponents.query ?? ""))
+            onError?(.unableToCreate(for: manifestURL))
         }
     }
-
     
+    
+    /// Provides an alert with update information.
     public func alert(for item: Manifest.Item, onStart: ((UIAlertAction) -> Void)? = nil, onPostpone: ((UIAlertAction) -> Void)? = nil) -> UIAlertController {
         
-        var message: String
-        if let version = item.metadata.version {
-            message = "\(item.metadata.title) version \(version) is available" + (bundleVersion.map { " (currently \($0))." } ?? ".")
-        } else {
-            message = "New version of \(item.metadata.title) is available."
-        }
+        var message = String(format: Message.titleVersionCurrentVersion, item.metadata.title, item.metadata.version ?? "?", bundleVersion ?? "?")
         if let subtitle = item.metadata.subtitle {
             message += "\n\n\(subtitle.replacingOccurrences(of: "\\n", with: "\n"))"
         }
-        let updateAlert = UIAlertController(title: "App Update Required", message: message, preferredStyle: .alert)
-        let startAction = UIAlertAction(title: "Download and Install Now", style: .destructive, handler: onStart ?? { _ in self.start() })
+        let updateAlert = UIAlertController(title: Message.available, message: message, preferredStyle: .alert)
+        let startAction = UIAlertAction(title: Message.start, style: .destructive, handler: onStart ?? { _ in self.start() })
         updateAlert.addAction(startAction)
-        let postponeAction = UIAlertAction(title: "Remind to Update Later", style: .cancel, handler: onPostpone)
+        let postponeAction = UIAlertAction(title: Message.postpone, style: .cancel, handler: onPostpone)
         updateAlert.addAction(postponeAction)
         return updateAlert
     }
