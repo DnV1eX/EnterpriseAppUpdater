@@ -16,6 +16,7 @@ DESC
   s.author              = { "Alexey Demin" => "dnv1ex@ya.ru" }
   s.social_media_url    = "http://twitter.com/dnv1ex"
 
+  s.swift_version           = "5.0"
   s.ios.deployment_target   = "10.0"
   
   s.source          = { :git => "https://github.com/DnV1eX/EnterpriseAppUpdater.git", :tag => "#{s.version}" }
