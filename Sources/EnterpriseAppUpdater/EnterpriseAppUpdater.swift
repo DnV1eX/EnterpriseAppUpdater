@@ -7,123 +7,13 @@
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
 //  you may not use this file except in compliance with the License.
-//  You may obtain a copy of the License at
-//
-//  http://www.apache.org/licenses/LICENSE-2.0
-//
-//  Unless required by applicable law or agreed to in writing, software
-//  distributed under the License is distributed on an "AS IS" BASIS,
-//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-//  See the License for the specific language governing permissions and
-//  limitations under the License.
 //
 
-import UIKit
+import Foundation
 
 
 /// Manage in-house application updates.
-public class EnterpriseAppUpdater {
-
-    public enum ManifestError: Error, CustomStringConvertible {
-        case unableToLoad(Error)
-        case unableToRead(Error)
-        
-        public var description: String {
-            switch self {
-            case .unableToLoad(let error): return "Unable to load manifest: \(error.localizedDescription)"
-            case .unableToRead(let error): return "Unable to read manifest: \(error.localizedDescription)"
-            }
-        }
-    }
-    
-    public enum ItemError: Error, CustomStringConvertible {
-        case noItemsFound
-        case multipleItemsFound(count: Int)
-        case wrongBundleIdentifier(String)
-        case unexpectedKind(String)
-        case noBundleVersionFound
-        case noAppUpdateNeeded(bundleVersion: String)
-        case noIPAURLFound
-
-        public var description: String {
-            switch self {
-            case .noItemsFound: return "No items found"
-            case .multipleItemsFound(let count): return "\(count) items found, only single supported"
-            case .wrongBundleIdentifier(let id): return "Bundle \"\(id)\" does not match the app"
-            case .unexpectedKind(let kind): return "Unexpected kind \"\(kind)\", only \"software\" downloads supported"
-            case .noBundleVersionFound: return "No bundle version found, it is required for software"
-            case .noAppUpdateNeeded(let bundleVersion): return "Current app version is greater or equal \(bundleVersion), no update needed"
-            case .noIPAURLFound: return "No .ipa URL found"
-            }
-        }
-    }
-    
-    public enum URLError: Error, CustomStringConvertible {
-        case unableToCreate(for: URL)
-        case unableToOpen(URL)
-
-        public var description: String {
-            switch self {
-            case .unableToCreate(let manifestURL): return "Unable to create URL for \"\(manifestURL)\""
-            case .unableToOpen(let url): return "Unable to open URL \"\(url)\""
-            }
-        }
-    }
-    
-    
-    public struct Manifest: Decodable {
-        
-        public struct Item: Decodable {
-            
-            public struct Asset: Decodable {
-                
-                public enum Kind: String, Decodable {
-                    case ipa = "software-package"
-                    case icon = "display-image"
-                    case image = "full-size-image"
-                }
-                
-                public let kind: Kind
-                public let url: String
-            }
-            
-            public struct Metadata: Decodable {
-                
-                enum CodingKeys: String, CodingKey {
-                    case identifier = "bundle-identifier"
-                    case version = "bundle-version"
-                    case kind
-                    case title
-                    case subtitle
-                }
-                
-                public let identifier: String
-                public let version: String?
-                public let kind: String
-                public let title: String
-                public let subtitle: String?
-            }
-            
-            public let assets: [Asset]
-            public let metadata: Metadata
-        }
-        
-        public let items: [Item]
-    }
-    
-    
-    public struct Message {
-        public static var error = "App Update Error"
-        public static var upToDate = "App is up-to-date"
-        public static var available = "Update Available"
-        public static var titleVersionCurrentVersion = "%@ version %@ (currently %@)"
-        public static var start = "Download and Install Now"
-        public static var postpone = "Remind to Update Later"
-        public static var started = "User started the update"
-        public static var postponed = "User postponed the update"
-        public static var postponeWarning = "Immediate application update is highly encouraged!"
-    }
-
+public struct EnterpriseAppUpdater {
     
     let manifestURL: URL
     let bundleIdentifier: String?
@@ -134,6 +24,15 @@ public class EnterpriseAppUpdater {
         manifestURL = url
         bundleIdentifier = identifier
         bundleVersion = version
+    }
+    
+    
+    public var url: URL? {
+        var urlComponents = URLComponents()
+        urlComponents.scheme = "itms-services"
+        urlComponents.host = ""
+        urlComponents.queryItems = [URLQueryItem(name: "action", value: "download-manifest"), URLQueryItem(name: "url", value: manifestURL.absoluteString)]
+        return urlComponents.url
     }
     
     
@@ -192,16 +91,18 @@ public class EnterpriseAppUpdater {
         }
         return .success(item)
     }
-    
-    
+}
+
+
+#if canImport(UIKit)
+import UIKit
+
+
+public extension EnterpriseAppUpdater {
     /// Start the application update.
-    public func start(onError: ((URLError) -> Void)? = nil) {
+    func start(onError: ((URLError) -> Void)? = nil) {
         
-        var urlComponents = URLComponents()
-        urlComponents.scheme = "itms-services"
-        urlComponents.host = ""
-        urlComponents.queryItems = [URLQueryItem(name: "action", value: "download-manifest"), URLQueryItem(name: "url", value: manifestURL.absoluteString)]
-        if let url = urlComponents.url {
+        if let url = url {
             UIApplication.shared.open(url) { success in
                 if !success {
                     onError?(.unableToOpen(url))
@@ -214,7 +115,7 @@ public class EnterpriseAppUpdater {
     
     
     /// Provides an alert with update information.
-    public func alert(for item: Manifest.Item, onStart: ((UIAlertAction) -> Void)? = nil, onPostpone: ((UIAlertAction) -> Void)? = nil) -> UIAlertController {
+    func alert(for item: Manifest.Item, onStart: ((UIAlertAction) -> Void)? = nil, onPostpone: ((UIAlertAction) -> Void)? = nil) -> UIAlertController {
         
         var message = String(format: Message.titleVersionCurrentVersion, item.metadata.title, item.metadata.version ?? "?", bundleVersion ?? "?")
         if let subtitle = item.metadata.subtitle {
@@ -228,16 +129,131 @@ public class EnterpriseAppUpdater {
         return updateAlert
     }
 }
+#endif
+
+
+public extension EnterpriseAppUpdater {
+    
+    enum ManifestError: Error, CustomStringConvertible {
+        case unableToLoad(Error)
+        case unableToRead(Error)
+        
+        public var description: String {
+            switch self {
+            case .unableToLoad(let error): return "Unable to load manifest: \(error.localizedDescription)"
+            case .unableToRead(let error): return "Unable to read manifest: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    
+    enum ItemError: Error, CustomStringConvertible {
+        case noItemsFound
+        case multipleItemsFound(count: Int)
+        case wrongBundleIdentifier(String)
+        case unexpectedKind(String)
+        case noBundleVersionFound
+        case noAppUpdateNeeded(bundleVersion: String)
+        case noIPAURLFound
+
+        public var description: String {
+            switch self {
+            case .noItemsFound: return "No items found"
+            case .multipleItemsFound(let count): return "\(count) items found, only single supported"
+            case .wrongBundleIdentifier(let id): return "Bundle \"\(id)\" does not match the app"
+            case .unexpectedKind(let kind): return "Unexpected kind \"\(kind)\", only \"software\" downloads supported"
+            case .noBundleVersionFound: return "No bundle version found, it is required for software"
+            case .noAppUpdateNeeded(let bundleVersion): return "Current app version is greater or equal \(bundleVersion), no update needed"
+            case .noIPAURLFound: return "No .ipa URL found"
+            }
+        }
+    }
+    
+    
+    enum URLError: Error, CustomStringConvertible {
+        case unableToCreate(for: URL)
+        case unableToOpen(URL)
+
+        public var description: String {
+            switch self {
+            case .unableToCreate(let manifestURL): return "Unable to create URL for \"\(manifestURL)\""
+            case .unableToOpen(let url): return "Unable to open URL \"\(url)\""
+            }
+        }
+    }
+}
+
+
+
+public extension EnterpriseAppUpdater {
+    
+    struct Manifest: Decodable {
+        
+        public struct Item: Decodable {
+            
+            public struct Asset: Decodable {
+                
+                public enum Kind: String, Decodable {
+                    case ipa = "software-package"
+                    case icon = "display-image"
+                    case image = "full-size-image"
+                }
+                
+                public let kind: Kind
+                public let url: String
+            }
+            
+            public struct Metadata: Decodable {
+                
+                enum CodingKeys: String, CodingKey {
+                    case identifier = "bundle-identifier"
+                    case version = "bundle-version"
+                    case kind
+                    case title
+                    case subtitle
+                }
+                
+                public let identifier: String
+                public let version: String?
+                public let kind: String
+                public let title: String
+                public let subtitle: String?
+            }
+            
+            public let assets: [Asset]
+            public let metadata: Metadata
+        }
+        
+        public let items: [Item]
+    }
+}
+
+
+
+public extension EnterpriseAppUpdater {
+    
+    struct Message {
+        public static var error = "App Update Error"
+        public static var upToDate = "App is up-to-date"
+        public static var available = "Update Available"
+        public static var titleVersionCurrentVersion = "%@ version %@ (currently %@)"
+        public static var start = "Download and Install Now"
+        public static var postpone = "Remind to Update Later"
+        public static var started = "User started the update"
+        public static var postponed = "User postponed the update"
+        public static var postponeWarning = "Immediate application update is highly encouraged!"
+    }
+}
 
 
 
 public extension Bundle {
     
     var version: String? {
-        return infoDictionary?["CFBundleShortVersionString"] as? String
+        infoDictionary?["CFBundleShortVersionString"] as? String
     }
     
     var build: String? {
-        return infoDictionary?["CFBundleVersion"] as? String
+        infoDictionary?["CFBundleVersion"] as? String
     }
 }
