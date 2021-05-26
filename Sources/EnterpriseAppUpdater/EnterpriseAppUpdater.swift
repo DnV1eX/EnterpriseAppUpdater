@@ -11,7 +11,6 @@
 
 import Foundation
 
-
 /// Manage in-house application updates.
 public struct EnterpriseAppUpdater {
     
@@ -35,6 +34,14 @@ public struct EnterpriseAppUpdater {
         return urlComponents.url
     }
     
+    
+    public func message(with metadata: Manifest.Item.Metadata) -> String {
+        var message = String(format: Message.titleVersionCurrentVersion, metadata.title, metadata.version ?? "?", bundleVersion ?? "?")
+        if let subtitle = metadata.subtitle {
+            message += "\n\n\(subtitle.replacingOccurrences(of: "\\n", with: "\n"))"
+        }
+        return message
+    }
     
     /// Load and read the application manifest file.
     public func loadManifest(onCompletion: @escaping (Result<Manifest, ManifestError>) -> Void) {
@@ -61,7 +68,6 @@ public struct EnterpriseAppUpdater {
             }
         }
     }
-    
     
     /// Check the manifest for an application update.
     public func check(manifest: Manifest, strict: Bool = true) -> Result<Manifest.Item, ItemError> {
@@ -97,7 +103,7 @@ public struct EnterpriseAppUpdater {
 #if canImport(UIKit)
 import UIKit
 
-
+@available(iOS 10.0, *)
 public extension EnterpriseAppUpdater {
     /// Start the application update.
     func start(onError: ((URLError) -> Void)? = nil) {
@@ -113,20 +119,56 @@ public extension EnterpriseAppUpdater {
         }
     }
     
-    
     /// Provides an alert with update information.
     func alert(for item: Manifest.Item, onStart: ((UIAlertAction) -> Void)? = nil, onPostpone: ((UIAlertAction) -> Void)? = nil) -> UIAlertController {
         
-        var message = String(format: Message.titleVersionCurrentVersion, item.metadata.title, item.metadata.version ?? "?", bundleVersion ?? "?")
-        if let subtitle = item.metadata.subtitle {
-            message += "\n\n\(subtitle.replacingOccurrences(of: "\\n", with: "\n"))"
-        }
-        let updateAlert = UIAlertController(title: Message.available, message: message, preferredStyle: .alert)
+        let updateAlert = UIAlertController(title: Message.available, message: message(with: item.metadata), preferredStyle: .alert)
         let startAction = UIAlertAction(title: Message.start, style: .destructive, handler: onStart ?? { _ in self.start() })
         updateAlert.addAction(startAction)
         let postponeAction = UIAlertAction(title: Message.postpone, style: .cancel, handler: onPostpone)
         updateAlert.addAction(postponeAction)
         return updateAlert
+    }
+}
+#endif
+
+
+#if canImport(SwiftUI)
+import SwiftUI
+
+@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+public extension EnterpriseAppUpdater {
+    /// Provides an alert with update information.
+    func alert(for item: Manifest.Item, onStart: @escaping (URL) -> Void, onPostpone: (() -> Void)? = nil) -> Alert {
+        
+        Alert(title: Text(Message.available),
+              message: Text(message(with: item.metadata)),
+              primaryButton: .destructive(Text(Message.start), action: { url.map(onStart) }),
+              secondaryButton: .cancel(Text(Message.postpone), action: onPostpone))
+    }
+}
+#endif
+
+
+#if canImport(Combine)
+import Combine
+
+@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+public extension EnterpriseAppUpdater {
+    
+    var publisher: AnyPublisher<Manifest.Item, Error> {
+        Deferred {
+            Future { promise in
+                loadManifest { result in
+                    do {
+                        try promise(.success(check(manifest: result.get()).get()))
+                    } catch {
+                        promise(.failure(error))
+                    }
+                }
+            }
+        }
+        .eraseToAnyPublisher()
     }
 }
 #endif
