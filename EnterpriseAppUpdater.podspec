@@ -3,7 +3,7 @@
 Pod::Spec.new do |s|
 
   s.name    = "EnterpriseAppUpdater"
-  s.version = "1.1.0"
+  s.version = "1.2.1"
   s.summary = "Manage iOS In-House App Updates"
 
   s.description = <<-DESC
@@ -16,11 +16,10 @@ DESC
   s.author              = { "Alexey Demin" => "dnv1ex@ya.ru" }
   s.social_media_url    = "http://twitter.com/dnv1ex"
 
-  s.swift_version           = "5.0"
-  s.ios.deployment_target   = "10.0"
+  s.swift_version           = "5.4"
+  s.ios.deployment_target   = "9.0"
   
   s.source          = { :git => "https://github.com/DnV1eX/EnterpriseAppUpdater.git", :tag => "#{s.version}" }
-  s.source_files    = "Sources/EnterpriseAppUpdater/EnterpriseAppUpdater.swift"
-  s.framework       = "UIKit"
+  s.source_files    = "Sources/EnterpriseAppUpdater/*.swift"
 
 end

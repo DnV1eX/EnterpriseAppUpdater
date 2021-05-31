@@ -1,4 +1,4 @@
-// swift-tools-version:5.2
+// swift-tools-version:5.4
 
 import PackageDescription
 
@@ -15,6 +15,7 @@ let package = Package(
             dependencies: []),
         .testTarget(
             name: "EnterpriseAppUpdaterTests",
-            dependencies: ["EnterpriseAppUpdater"]),
+            dependencies: ["EnterpriseAppUpdater"],
+            resources: [.copy("manifest.plist")]),
     ]
 )

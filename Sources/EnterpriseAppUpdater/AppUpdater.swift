@@ -1,5 +1,5 @@
 //
-//  EnterpriseAppUpdater.swift
+//  AppUpdater.swift
 //  EnterpriseAppUpdater
 //
 //  Created by Alexey Demin on 2019-09-09.
@@ -12,7 +12,7 @@
 import Foundation
 
 /// Manage in-house application updates.
-public struct EnterpriseAppUpdater {
+public struct AppUpdater {
     
     let manifestURL: URL
     let bundleIdentifier: String?
@@ -44,33 +44,38 @@ public struct EnterpriseAppUpdater {
     }
     
     /// Load and read the application manifest file.
-    public func loadManifest(onCompletion: @escaping (Result<Manifest, ManifestError>) -> Void) {
+    public func loadManifest(in session: URLSession = .shared, onCompletion: @escaping (Result<Manifest, ManifestLoadError>) -> Void) {
         
-        DispatchQueue.global(qos: .utility).async {
-            let result: Result<Manifest, ManifestError> = {
-                let data: Data
-                do {
-                    data = try Data(contentsOf: self.manifestURL)
-                } catch {
-                    return .failure(.unableToLoad(error))
+        session.dataTask(with: manifestURL) { data, response, error in
+            
+            let result: Result<Manifest, ManifestLoadError> = {
+                if let error = error {
+                    return .failure(.connectionError(error))
                 }
-//                print(String(data: data, encoding: .utf8))
+                if let response = response as? HTTPURLResponse {
+                    guard case 200..<300 = response.statusCode else {
+                        return .failure(.serverError(code: response.statusCode))
+                    }
+                }
+                guard let data = data else {
+                    return .failure(.noDataReceived)
+                }
                 let manifest: Manifest
                 do {
                     manifest = try PropertyListDecoder().decode(Manifest.self, from: data)
                 } catch {
-                    return .failure(.unableToRead(error))
+                    return .failure(.decodingError(error))
                 }
                 return .success(manifest)
             }()
             DispatchQueue.main.async {
                 onCompletion(result)
             }
-        }
+        }.resume()
     }
     
     /// Check the manifest for an application update.
-    public func check(manifest: Manifest, strict: Bool = true) -> Result<Manifest.Item, ItemError> {
+    public func check(manifest: Manifest, strict: Bool = true) -> Result<Manifest.Item, ManifestCheckError> {
         
         guard let item = manifest.items.first else {
             return .failure(.noItemsFound)
@@ -100,96 +105,27 @@ public struct EnterpriseAppUpdater {
 }
 
 
-#if canImport(UIKit)
-import UIKit
 
-@available(iOS 10.0, *)
-public extension EnterpriseAppUpdater {
-    /// Start the application update.
-    func start(onError: ((URLError) -> Void)? = nil) {
-        
-        if let url = url {
-            UIApplication.shared.open(url) { success in
-                if !success {
-                    onError?(.unableToOpen(url))
-                }
-            }
-        } else {
-            onError?(.unableToCreate(for: manifestURL))
-        }
-    }
+public extension AppUpdater {
     
-    /// Provides an alert with update information.
-    func alert(for item: Manifest.Item, onStart: ((UIAlertAction) -> Void)? = nil, onPostpone: ((UIAlertAction) -> Void)? = nil) -> UIAlertController {
-        
-        let updateAlert = UIAlertController(title: Message.available, message: message(with: item.metadata), preferredStyle: .alert)
-        let startAction = UIAlertAction(title: Message.start, style: .destructive, handler: onStart ?? { _ in self.start() })
-        updateAlert.addAction(startAction)
-        let postponeAction = UIAlertAction(title: Message.postpone, style: .cancel, handler: onPostpone)
-        updateAlert.addAction(postponeAction)
-        return updateAlert
-    }
-}
-#endif
-
-
-#if canImport(SwiftUI)
-import SwiftUI
-
-@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
-public extension EnterpriseAppUpdater {
-    /// Provides an alert with update information.
-    func alert(for item: Manifest.Item, onStart: @escaping (URL) -> Void, onPostpone: (() -> Void)? = nil) -> Alert {
-        
-        Alert(title: Text(Message.available),
-              message: Text(message(with: item.metadata)),
-              primaryButton: .destructive(Text(Message.start), action: { url.map(onStart) }),
-              secondaryButton: .cancel(Text(Message.postpone), action: onPostpone))
-    }
-}
-#endif
-
-
-#if canImport(Combine)
-import Combine
-
-@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
-public extension EnterpriseAppUpdater {
-    
-    var publisher: AnyPublisher<Manifest.Item, Error> {
-        Deferred {
-            Future { promise in
-                loadManifest { result in
-                    do {
-                        try promise(.success(check(manifest: result.get()).get()))
-                    } catch {
-                        promise(.failure(error))
-                    }
-                }
-            }
-        }
-        .eraseToAnyPublisher()
-    }
-}
-#endif
-
-
-public extension EnterpriseAppUpdater {
-    
-    enum ManifestError: Error, CustomStringConvertible {
-        case unableToLoad(Error)
-        case unableToRead(Error)
+    enum ManifestLoadError: Error, CustomStringConvertible {
+        case connectionError(Error)
+        case serverError(code: Int)
+        case noDataReceived
+        case decodingError(Error)
         
         public var description: String {
             switch self {
-            case .unableToLoad(let error): return "Unable to load manifest: \(error.localizedDescription)"
-            case .unableToRead(let error): return "Unable to read manifest: \(error.localizedDescription)"
+            case .connectionError(let error): return error.localizedDescription
+            case .serverError(let code): return "Server error \(code)"
+            case .noDataReceived: return "Response data is empty"
+            case .decodingError(let error): return error.localizedDescription
             }
         }
     }
     
     
-    enum ItemError: Error, CustomStringConvertible {
+    enum ManifestCheckError: Error, CustomStringConvertible {
         case noItemsFound
         case multipleItemsFound(count: Int)
         case wrongBundleIdentifier(String)
@@ -200,8 +136,8 @@ public extension EnterpriseAppUpdater {
 
         public var description: String {
             switch self {
-            case .noItemsFound: return "No items found"
-            case .multipleItemsFound(let count): return "\(count) items found, only single supported"
+            case .noItemsFound: return "No manifest items found"
+            case .multipleItemsFound(let count): return "\(count) manifest items found, only single supported"
             case .wrongBundleIdentifier(let id): return "Bundle \"\(id)\" does not match the app"
             case .unexpectedKind(let kind): return "Unexpected kind \"\(kind)\", only \"software\" downloads supported"
             case .noBundleVersionFound: return "No bundle version found, it is required for software"
@@ -227,7 +163,7 @@ public extension EnterpriseAppUpdater {
 
 
 
-public extension EnterpriseAppUpdater {
+public extension AppUpdater {
     
     struct Manifest: Decodable {
         
@@ -272,10 +208,11 @@ public extension EnterpriseAppUpdater {
 
 
 
-public extension EnterpriseAppUpdater {
+public extension AppUpdater {
     
     struct Message {
         public static var error = "App Update Error"
+        public static var noConnection = "No internet or server connection"
         public static var upToDate = "App is up-to-date"
         public static var available = "Update Available"
         public static var titleVersionCurrentVersion = "%@ version %@ (currently %@)"
@@ -299,3 +236,8 @@ public extension Bundle {
         infoDictionary?["CFBundleVersion"] as? String
     }
 }
+
+
+
+@available(*, deprecated, renamed: "AppUpdater")
+public typealias EnterpriseAppUpdater = AppUpdater
