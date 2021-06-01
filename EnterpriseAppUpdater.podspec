@@ -17,8 +17,9 @@ DESC
   s.social_media_url    = "http://twitter.com/dnv1ex"
 
   s.swift_version           = "5.4"
-  s.ios.deployment_target   = "9.0"
-  
+  s.ios.deployment_target   = "10.0"
+  s.osx.deployment_target   = "10.12"
+
   s.source          = { :git => "https://github.com/DnV1eX/EnterpriseAppUpdater.git", :tag => "#{s.version}" }
   s.source_files    = "Sources/EnterpriseAppUpdater/*.swift"
 
